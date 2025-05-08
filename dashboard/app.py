@@ -1,141 +1,72 @@
 # dashboard/app.py
 
 import dash
-from dash import dcc, html
+from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output
 import pandas as pd
 import plotly.express as px
-import base64
-from io import BytesIO
-import csv
-import sys
 import os
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from preprocessing.eda_utils import LiveEDA
-from wordcloud import WordCloud
+external_stylesheets = ["https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"]
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app.title = "Streamer Sentiment Monitor"
+csv_path = "output/classified_chats.csv"
 
-CSV_PATH = 'results/predictions_live.csv'
+app.layout = html.Div(className="container-fluid bg-dark text-white p-4", children=[
+    html.H2("🎮 Real-Time Stream Sentiment & Satisfaction", className="text-center mb-4"),
 
-app = dash.Dash(__name__)
-app.title = "Real-Time Sentiment Dashboard"
+    html.Div(id="live-count", className="text-center h4 mb-4"),
 
-app.layout = html.Div([
-    html.H1("📊 Real-Time Sentiment Analysis Dashboard", style={'textAlign': 'center'}),
-
-    # Total Posts Analyzed
-    html.Div([
-        html.H4("Total Posts Analyzed:", style={'textAlign': 'center', 'marginTop': '20px'}),
-        html.H2(id='total-count', style={'textAlign': 'center', 'color': '#2E86AB'})
+    html.Div(className="row", children=[
+        html.Div(className="col-md-6", children=[
+            dcc.Graph(id="sentiment-graph")
+        ]),
+        html.Div(className="col-md-6", children=[
+            dcc.Graph(id="satisfaction-graph")
+        ])
     ]),
 
-    # Bar Chart
-    html.Div([
-        dcc.Graph(id='sentiment-bar')
-    ], style={'paddingTop': '30px'}),
+    html.H4("Recent Chat Logs", className="mt-4"),
+    dash_table.DataTable(
+        id="live-table",
+        columns=[
+            {"name": "Timestamp", "id": "timestamp"},
+            {"name": "Platform", "id": "platform"},
+            {"name": "Text", "id": "text"},
+            {"name": "Sentiment", "id": "sentiment"},
+            {"name": "Satisfaction", "id": "satisfaction"}
+        ],
+        style_table={"overflowX": "auto"},
+        style_header={"backgroundColor": "#343a40", "color": "white"},
+        style_cell={"backgroundColor": "#212529", "color": "white"},
+        page_size=5
+    ),
 
-    # WordCloud
-    html.Div([
-        html.H3("Live WordCloud", style={'textAlign': 'center', 'marginTop': '30px'}),
-        html.Img(id='wordcloud-img', style={'display': 'block', 'margin': 'auto', 'width': '80%'})
-    ]),
-
-    # Most Recent 5 Posts
-    html.Div([
-        html.H4("Most Recent 5 Posts", style={'textAlign': 'center', 'marginTop': '30px'}),
-        html.Div(id='last-tweets', style={
-            'margin': 'auto',
-            'width': '80%',
-            'padding': '10px',
-            'backgroundColor': '#F7F9FA',
-            'borderRadius': '5px',
-            'whiteSpace': 'pre-wrap',
-            'fontFamily': 'monospace'
-        })
-    ], style={'paddingBottom': '30px'}),
-
-    # Interval for updates
-    dcc.Interval(
-        id='interval-component',
-        interval=10 * 1000,  # 10 seconds
-        n_intervals=0
-    )
+    dcc.Interval(id="interval", interval=5000, n_intervals=0)
 ])
 
-def generate_wordcloud_base64(csv_path):
-    eda = LiveEDA(csv_path)
-    if not eda.texts:
-        return None
-
-    combined_text = ' '.join(eda.texts)
-    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(combined_text)
-
-    buffer = BytesIO()
-    wordcloud.to_image().save(buffer, format='PNG')
-    buffer.seek(0)
-    encoded_image = base64.b64encode(buffer.read()).decode()
-    return f"data:image/png;base64,{encoded_image}"
-
 @app.callback(
-    Output('total-count', 'children'),
-    [Input('interval-component', 'n_intervals')]
+    [Output("sentiment-graph", "figure"),
+     Output("satisfaction-graph", "figure"),
+     Output("live-table", "data"),
+     Output("live-count", "children")],
+    [Input("interval", "n_intervals")]
 )
-def update_total_count(n):
-    try:
-        df = pd.read_csv(CSV_PATH, quoting=csv.QUOTE_ALL, on_bad_lines='skip', encoding='utf-8')
-        return f"{len(df)}"
-    except:
-        return "0"
+def update_dashboard(_):
+    if not os.path.exists(csv_path):
+        return dash.no_update
 
-@app.callback(
-    Output('sentiment-bar', 'figure'),
-    [Input('interval-component', 'n_intervals')]
-)
-def update_sentiment_bar(n):
-    try:
-        df = pd.read_csv(CSV_PATH, quoting=csv.QUOTE_ALL, on_bad_lines='skip', encoding='utf-8')
-        df.columns = [c.strip().lower() for c in df.columns]
-        if 'label' not in df.columns:
-            raise ValueError("Missing 'label' column")
+    df = pd.read_csv(csv_path)
+    if df.empty:
+        return dash.no_update
 
-        counts = df['label'].value_counts().reset_index()
-        counts.columns = ['Sentiment', 'Count']
-        fig = px.bar(
-            counts, x='Sentiment', y='Count',
-            color='Sentiment', title='Live Sentiment Counts',
-            text='Count'
-        )
-        fig.update_layout(xaxis_title=None, yaxis_title=None, plot_bgcolor='#F7F9FA')
-        return fig
-    except Exception as e:
-        print("[Bar Chart Error]:", e)
-        return px.bar(title="Waiting for data...")
+    sentiment_fig = px.pie(df, names="sentiment", title="Sentiment Pie", hole=0.3)
+    satisfaction_fig = px.pie(df, names="satisfaction", title="Satisfaction Pie", hole=0.3)
 
-@app.callback(
-    Output('wordcloud-img', 'src'),
-    [Input('interval-component', 'n_intervals')]
-)
-def update_wordcloud(n):
-    return generate_wordcloud_base64(CSV_PATH)
+    recent_data = df.tail(5)[["timestamp", "platform", "text", "sentiment", "satisfaction"]].iloc[::-1].to_dict("records")
+    count_str = f"Total Posts Streamed: {len(df)}"
 
-@app.callback(
-    Output('last-tweets', 'children'),
-    [Input('interval-component', 'n_intervals')]
-)
-def update_last_tweets(n):
-    try:
-        df = pd.read_csv(CSV_PATH, quoting=csv.QUOTE_ALL, on_bad_lines='skip', encoding='utf-8')
-        df.columns = [c.strip().lower() for c in df.columns]
-        if not all(col in df.columns for col in ['text', 'platform', 'label']):
-            return "No data yet."
+    return sentiment_fig, satisfaction_fig, recent_data, count_str
 
-        last5 = df.tail(5).iloc[::-1]
-        lines = []
-        for _, row in last5.iterrows():
-            lines.append(f"[{row['platform'].capitalize()}] ({row['label'].capitalize()}): {row['text']}")
-        return "\n\n".join(lines)
-    except Exception as e:
-        return f"[Error loading tweets]: {e}"
-
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__== "_main_":
+    app.run_server(debug=True)

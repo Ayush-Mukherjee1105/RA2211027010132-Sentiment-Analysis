@@ -1,69 +1,167 @@
-# Real-Time Sentiment Analysis on Social Media (Twitter + Reddit)
+# 🎯 Real-Time Sentiment & Satisfaction Analysis on Live Streaming Data
 
-This project implements a complete real-time sentiment analysis pipeline that classifies live posts from Twitter and Reddit using a custom DistilBERT + BiLSTM hybrid model. It streams data via Kafka, processes it using PyTorch, and visualizes results in a live dashboard.
+This project performs real-time sentiment and viewer satisfaction analysis using a fine-tuned DistilBERT model on the GoEmotions dataset. The system ingests live chat messages from **Twitch** and **YouTube**, classifies them, and visualizes insights on a dynamic dashboard.
 
-## 🔧 Project Features
+---
 
-- Real-time post ingestion from Twitter and Reddit
-- Kafka-based producer–consumer architecture
-- Lightweight, low-latency sentiment classifier
-- Live dashboard with:
-  - Sentiment bar chart
-  - Word cloud
-  - Total post counter
-  - 5 most recent posts
-- Local CSV-based storage for inference logs
-- Ethical and fair evaluation across 5 models
+## 📦 Features
 
-## 🛠️ Tech Stack
+- ✅ Real-time data ingestion from Twitch and YouTube (via Kafka)
+- ✅ Fine-tuned DistilBERT model on GoEmotions (happy, bored, confused + sentiment)
+- ✅ Kafka consumer for classification and CSV logging
+- ✅ Dash-based live dashboard with clean and dark-themed UI options
+- ✅ Modular codebase with clean folder structure
 
-- Python 3.9
-- Kafka (Streaming)
-- PyTorch + HuggingFace Transformers
-- Dash + Plotly (Visualization)
-- Pandas, NLTK, Matplotlib
+---
+
+## ⚙️ Prerequisites
+
+- Python 3.8+
+- Java 8+ (JDK)
+- Kafka & Zookeeper
+- Node.js (optional, for advanced monitoring)
+- GPU (optional but recommended)
+
+---
+
+## 🏁 Setup Instructions
+
+### 1. 🔧 Clone Repository
+
+```bash
+git clone https://github.com/your-username/stream-sentiment-analyzer
+cd stream-sentiment-analyzer
+````
+---
+
+### 2. 🐍 Create Virtual Environment
+
+```bash
+python -m venv myenv
+myenv\Scripts\activate     
+
+pip install -r requirements.txt
+```
+
+---
+
+## 🧠 Model Setup
+
+* Trained model file: `models/best_model.pt`
+* Inference logic: `model/infer.py` (with emotion → sentiment/satisfaction mapping)
+
+---
+
+## ⚡ Kafka Setup (Windows)
+
+### 1. Start Zookeeper
+
+```bash
+bin\windows\zookeeper-server-start.bat config\zookeeper.properties  # Windows
+```
+
+### 2. Start Kafka Broker
+
+```bash
+bin\windows\kafka-server-start.bat config\server.properties  # Windows
+```
+
+> ⚠ If `.bat` fails, use Java-based command:
+
+```bash
+java -cp "libs/*" kafka.Kafka config/server.properties
+```
+
+---
+
+## 🚀 Running the Real-Time System
+
+### 1. 🎥 Start Data Producers
+
+Make sure you've added your credentials to:
+
+* `config/twitch_keys.py`
+* `config/youtube_keys.py`
+
+Then run:
+
+```bash
+python ingestion/twitch_producer.py
+python ingestion/youtube_producer.py
+```
+
+### 2. 🧠 Start the Kafka Consumer
+
+This will:
+
+* Read from `stream_chat`
+* Run inference using `model/infer.py`
+* Save to `output/classified_chats.csv`
+
+```bash
+python streaming/kafka_consumer.py
+```
+
+---
+
+## 📊 Run the Dashboard
+
+```bash
+python dashboard/app.py
+```
 
 
-## ⚙️ How to Run
+Access the dashboard at:
+🔗 [http://127.0.0.1:8050/](http://127.0.0.1:8050/)
 
-1. Clone the repo and set up a Python virtual environment
-2. Place your Twitter and Reddit API keys in `config/twitter_keys.py` and `config/reddit_keys.py`
-3. Start Kafka/Zookeeper
-4. Run the producer scripts:
-    ```bash
-    python ingestion/twitter_producer.py
-    python ingestion/reddit_producer.py
-    ```
-5. Start the consumer:
-    ```bash
-    python streaming/kafka_consumer.py
-    ```
-6. Launch the dashboard:
-    ```bash
-    python dashboard/app.py
-    ```
+---
 
-## 📊 Model Evaluation
+## 📁 Folder Structure
 
-Models were trained and evaluated on a balanced 50K sample from Sentiment140. The hybrid model showed competitive accuracy with lowest latency.
+```
+.
+├── config/
+│   ├── twitch_keys.py
+│   └── youtube_keys.py
+├── ingestion/
+│   ├── twitch_producer.py
+│   └── youtube_producer.py
+├── model/
+│   ├── infer.py
+│   └── optimized_distillbert_qos.pt
+├── streaming/
+│   └── kafka_consumer.py
+├── dashboard/
+│   ├── app_clean.py
+│   └── app_rich.py
+├── output/
+│   └── classified_chats.csv
+├── requirements.txt
+└── README.md
+```
 
-| Model             | Accuracy | F1-Score | Latency (ms/sample) |
-|------------------|----------|----------|----------------------|
-| RoBERTa          | 0.8563   | 0.8537   | 7.31                 |
-| BERT             | 0.8392   | 0.8356   | 7.85                 |
-| DistilBERT       | 0.8307   | 0.8231   | 4.12                 |
-| ALBERT           | 0.8245   | 0.8216   | 7.90                 |
-| **Our Model**    | 0.7468   | 0.7401   | **4.37**             |
+---
 
+## ✅ Dataset Used
 
-## 📜 License
+* **GoEmotions**: A fine-grained emotion classification dataset released by Google Research.
+* **Label Mapping**: 28 emotion classes mapped into 3 satisfaction types and 2 sentiment types.
 
-MIT License
+---
 
-## 🙏 Acknowledgements
+## 💬 Acknowledgements
 
-- [HuggingFace Transformers](https://huggingface.co)
-- [Sentiment140 Dataset](http://help.sentiment140.com)
-- [Dash by Plotly](https://plotly.com/dash/)
+* HuggingFace Transformers
+* Google Research (GoEmotions)
+* Apache Kafka
+* Dash/Plotly
+
+---
+
+## 🧠 Future Work
+
+* Add sarcasm detection and toxicity flagging
+* Multilingual support
+* Real-time alerting for community management
 
 
