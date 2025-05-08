@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Environment and dependencies
+.env
+.venv/
+env/
+venv/
+myenv/
+
+# PyTorch and model artifacts
+*.pth
+*.pt
+
+# Logs and runtime files
+*.log
+*.pid
+*.bak
+nohup.out
+
+# Kafka or local data outputs
+*.csv
+data/
+logs/
+checkpoints/
+evaluation/results/
+*.db
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python test cache
+*.pytest_cache/
+
+# Dash and HTML cache
+__dash_cache__/
+__pycache__/
+
+
+config 
+Get-TwitchToken.ps1
