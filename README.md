@@ -66,12 +66,6 @@ bin\windows\zookeeper-server-start.bat config\zookeeper.properties  # Windows
 bin\windows\kafka-server-start.bat config\server.properties  # Windows
 ```
 
-> ⚠ If `.bat` fails, use Java-based command:
-
-```bash
-java -cp "libs/*" kafka.Kafka config/server.properties
-```
-
 ---
 
 ## 🚀 Running the Real-Time System
