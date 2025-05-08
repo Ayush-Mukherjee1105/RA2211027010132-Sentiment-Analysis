@@ -29,7 +29,7 @@ model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
 model.to(DEVICE)
 model.eval()
 
-def predict_emotion(text: str) -> str:
+def predict_emotion(text: str) -> tuple:
     inputs = tokenizer(
         text,
         return_tensors="pt",
@@ -45,4 +45,19 @@ def predict_emotion(text: str) -> str:
         logits = outputs.logits
         predicted_class_id = torch.argmax(logits, dim=1).item()
 
-    return EMOTION_LABELS[predicted_class_id]
+    emotion = EMOTION_LABELS[predicted_class_id]
+
+    # Simple heuristic for satisfaction
+    satisfaction_map = {
+        "joy": "satisfied",
+        "gratitude": "satisfied",
+        "relief": "satisfied",
+        "love": "satisfied",
+        "admiration": "satisfied",
+        "approval": "satisfied",
+        "neutral": "neutral",
+    }
+    satisfaction = satisfaction_map.get(emotion, "unsatisfied")
+
+    return emotion, satisfaction
+
