@@ -1,4 +1,5 @@
 import torch
+import os
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_scheduler
 from torch.optim import AdamW
 from datasets import load_dataset
@@ -9,7 +10,6 @@ import numpy as np
 
 # Constants
 MODEL_NAME = "distilbert-base-uncased"
-NUM_LABELS = 32  # For EmpatheticDialogues emotion classes
 MAX_LENGTH = 128
 BATCH_SIZE = 8
 EPOCHS = 10
@@ -19,41 +19,56 @@ PATIENCE = 3
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
-# Load dataset
-dataset = load_dataset("empathetic_dialogues")
+# Load GoEmotions dataset
+dataset = load_dataset("go_emotions")
 train_data = dataset["train"]
+val_data = dataset["validation"]  # or "test" if no validation split
 
-# Extract label list from "emotion" in context if available, otherwise use tags
-if "emotion" in train_data.features:
-    label_column = "emotion"
-else:
-    # use 'tags' or manually map to emotions if necessary
-    train_data = train_data.filter(lambda ex: ex["tags"])  # remove empty tags
-    train_data = train_data.map(lambda x: {"label": x["tags"][0]})
-    label_column = "label"
+print("Available columns:", train_data.column_names)
 
-# Label encoding
-labels = sorted(list(set(train_data[label_column])))
-label2id = {label: idx for idx, label in enumerate(labels)}
-id2label = {idx: label for label, idx in label2id.items()}
-train_data = train_data.map(lambda x: {"label_id": label2id[x[label_column]]})
+# Get emotion names from the dataset info
+emotion_names = dataset["train"].features["labels"].feature.names
+NUM_LABELS = len(emotion_names)
+
+# Use the first label for single-label classification
+def extract_label(example):
+    # If no label, assign a special label (optional: filter these out)
+    return {"label_id": example["labels"][0] if len(example["labels"]) > 0 else -1}
+
+train_data = train_data.filter(lambda x: len(x["labels"]) > 0)
+train_data = train_data.map(extract_label)
+
+val_data = val_data.filter(lambda x: len(x["labels"]) > 0)
+val_data = val_data.map(extract_label)
+
+label2id = {name: idx for idx, name in enumerate(emotion_names)}
+id2label = {idx: name for idx, name in enumerate(emotion_names)}
 
 # Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
 def tokenize_fn(example):
-    return tokenizer(example["utterance"], truncation=True, max_length=MAX_LENGTH, padding="max_length")
+    return tokenizer(example["text"], truncation=True, max_length=MAX_LENGTH, padding="max_length")
 
 tokenized_dataset = train_data.map(tokenize_fn, batched=True)
 tokenized_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "label_id"])
+
+tokenized_val = val_data.map(tokenize_fn, batched=True)
+tokenized_val.set_format(type="torch", columns=["input_ids", "attention_mask", "label_id"])
 
 # Dataloader
 train_loader = DataLoader(
     tokenized_dataset,
     batch_size=BATCH_SIZE,
     shuffle=True,
-    num_workers=4,
+    num_workers=0,  # <-- Set to 0 for Windows compatibility
     pin_memory=True
+)
+
+val_loader = DataLoader(
+    tokenized_val,
+    batch_size=BATCH_SIZE,
+    num_workers=0
 )
 
 # Model
@@ -70,7 +85,10 @@ lr_scheduler = get_scheduler("linear", optimizer=optimizer, num_warmup_steps=0, 
 # Mixed precision
 scaler = GradScaler()
 
-best_loss = float('inf')
+# Ensure the models directory exists
+os.makedirs("models", exist_ok=True)
+
+best_val_loss = float('inf')
 patience_counter = 0
 
 for epoch in range(EPOCHS):
@@ -106,10 +124,34 @@ for epoch in range(EPOCHS):
         acc = correct / total
         progress_bar.set_postfix(loss=avg_loss, acc=acc)
 
-    # Early stopping & save best model
-    avg_epoch_loss = total_loss / len(train_loader)
-    if avg_epoch_loss < best_loss:
-        best_loss = avg_epoch_loss
+    # --- Validation loop ---
+    model.eval()
+    val_loss = 0.0
+    val_correct = 0
+    val_total = 0
+    with torch.no_grad():
+        for batch in val_loader:
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            labels = batch["label_id"].to(device)
+
+            with autocast():
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                loss = outputs.loss
+                logits = outputs.logits
+
+            val_loss += loss.item()
+            preds = torch.argmax(logits, dim=1)
+            val_correct += (preds == labels).sum().item()
+            val_total += labels.size(0)
+
+    avg_val_loss = val_loss / len(val_loader)
+    val_acc = val_correct / val_total
+    print(f"Validation loss: {avg_val_loss:.4f} | Validation accuracy: {val_acc:.4f}")
+
+    # Early stopping & save best model based on validation loss
+    if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
         patience_counter = 0
         torch.save(model.state_dict(), "models/best_model.pt")
         print("✅ Best model saved.")
@@ -118,3 +160,9 @@ for epoch in range(EPOCHS):
         if patience_counter >= PATIENCE:
             print("🛑 Early stopping triggered.")
             break
+
+# --- Tips to reduce overfitting ---
+# 1. Use dropout: DistilBERT already has dropout, but you can lower learning rate or increase dropout in config.
+# 2. Use weight decay: optimizer = AdamW(model.parameters(), lr=5e-5, weight_decay=0.01)
+# 3. Use early stopping (already implemented).
+# 4. Use more data augmentation or regularization if possible.

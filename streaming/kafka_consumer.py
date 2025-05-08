@@ -2,7 +2,7 @@
 
 import json
 from kafka import KafkaConsumer
-from model.infer import predict  # returns sentiment, satisfaction
+from models.infer import predict  # returns sentiment, satisfaction
 from preprocessing.clean_text import clean_text
 import csv
 from datetime import datetime
