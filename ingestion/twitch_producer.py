@@ -17,7 +17,7 @@ class TwitchChatBot(commands.Bot):
             token=TWITCH_ACCESS_TOKEN,
             client_id=TWITCH_CLIENT_ID,
             prefix='!',
-            initial_channels=['your_channel_name']  # Replace with your Twitch channel
+            initial_channels=['necros']  # Replace with your Twitch channel
         )
 
     async def event_ready(self):

@@ -74,8 +74,11 @@ bin\windows\kafka-server-start.bat config\server.properties  # Windows
 
 Make sure you've added your credentials to:
 
-* `config/twitch_keys.py`
-* `config/youtube_keys.py`
+* `config/twitch_keys.py` 
+* `config/youtube_keys.py` 
+
+For Twitch Token visit: 
+[https://id.twitch.tv/oauth2/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=http://localhost&response_type=token&scope=chat:read]
 
 Then run:
 

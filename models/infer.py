@@ -8,13 +8,9 @@ MODEL_NAME = "distilbert-base-uncased"
 MAX_LENGTH = 128
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Emotion labels from GoEmotions
+# Emotion labels from dair-ai/emotion
 EMOTION_LABELS = [
-    'admiration', 'amusement', 'anger', 'annoyance', 'approval', 'caring', 'confusion',
-    'curiosity', 'desire', 'disappointment', 'disapproval', 'disgust', 'embarrassment',
-    'excitement', 'fear', 'gratitude', 'grief', 'joy', 'love', 'nervousness',
-    'optimism', 'pride', 'realization', 'relief', 'remorse', 'sadness', 'surprise',
-    'neutral'
+    'sadness', 'joy', 'love', 'anger', 'fear', 'surprise'
 ]
 
 # Tokenizer and Model Setup
@@ -50,12 +46,8 @@ def predict_emotion(text: str) -> tuple:
     # Simple heuristic for satisfaction
     satisfaction_map = {
         "joy": "satisfied",
-        "gratitude": "satisfied",
-        "relief": "satisfied",
         "love": "satisfied",
-        "admiration": "satisfied",
-        "approval": "satisfied",
-        "neutral": "neutral",
+        "surprise": "satisfied",
     }
     satisfaction = satisfaction_map.get(emotion, "unsatisfied")
 

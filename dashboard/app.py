@@ -1,4 +1,4 @@
-# dashboard/app.py
+
 
 import dash
 from dash import dcc, html, dash_table
@@ -68,5 +68,5 @@ def update_dashboard(_):
 
     return sentiment_fig, satisfaction_fig, recent_data, count_str
 
-if __name__== "_main_":
-    app.run_server(debug=True)
+if __name__== "__main__":
+    app.run(debug=True)

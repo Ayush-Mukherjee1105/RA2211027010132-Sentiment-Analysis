@@ -7,6 +7,9 @@ from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 import numpy as np
+from collections import Counter
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.metrics import f1_score
 
 # Constants
 MODEL_NAME = "distilbert-base-uncased"
@@ -14,35 +17,43 @@ MAX_LENGTH = 128
 BATCH_SIZE = 8
 EPOCHS = 10
 PATIENCE = 3
+LEARNING_RATE = 3e-5
 
 # Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
-# Load GoEmotions dataset
-dataset = load_dataset("go_emotions")
+# Load the 'emotion' dataset
+dataset = load_dataset("dair-ai/emotion")
 train_data = dataset["train"]
-val_data = dataset["validation"]  # or "test" if no validation split
+val_data = dataset["validation"]
 
 print("Available columns:", train_data.column_names)
 
-# Get emotion names from the dataset info
-emotion_names = dataset["train"].features["labels"].feature.names
+# Get emotion names and number of labels
+emotion_names = train_data.features["label"].names
 NUM_LABELS = len(emotion_names)
 
-# Use the first label for single-label classification
 def extract_label(example):
-    # If no label, assign a special label (optional: filter these out)
-    return {"label_id": example["labels"][0] if len(example["labels"]) > 0 else -1}
+    return {"label_id": example["label"]}
 
-train_data = train_data.filter(lambda x: len(x["labels"]) > 0)
 train_data = train_data.map(extract_label)
-
-val_data = val_data.filter(lambda x: len(x["labels"]) > 0)
 val_data = val_data.map(extract_label)
+
+# Print class distribution
+print("Train label distribution:", Counter([ex["label_id"] for ex in train_data]))
 
 label2id = {name: idx for idx, name in enumerate(emotion_names)}
 id2label = {idx: name for idx, name in enumerate(emotion_names)}
+
+# Compute class weights
+labels = [ex["label_id"] for ex in train_data]
+class_weights = compute_class_weight(
+    class_weight='balanced',
+    classes=np.unique(labels),
+    y=labels
+)
+class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
 
 # Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -61,7 +72,7 @@ train_loader = DataLoader(
     tokenized_dataset,
     batch_size=BATCH_SIZE,
     shuffle=True,
-    num_workers=0,  # <-- Set to 0 for Windows compatibility
+    num_workers=0,
     pin_memory=True
 )
 
@@ -79,13 +90,15 @@ model = AutoModelForSequenceClassification.from_pretrained(
     label2id=label2id
 ).to(device)
 
-optimizer = AdamW(model.parameters(), lr=5e-5)
-lr_scheduler = get_scheduler("linear", optimizer=optimizer, num_warmup_steps=0, num_training_steps=len(train_loader)*EPOCHS)
+optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
+lr_scheduler = get_scheduler(
+    "linear",
+    optimizer=optimizer,
+    num_warmup_steps=0,
+    num_training_steps=len(train_loader) * EPOCHS
+)
 
-# Mixed precision
 scaler = GradScaler()
-
-# Ensure the models directory exists
 os.makedirs("models", exist_ok=True)
 
 best_val_loss = float('inf')
@@ -94,8 +107,8 @@ patience_counter = 0
 for epoch in range(EPOCHS):
     model.train()
     total_loss = 0.0
-    correct = 0
-    total = 0
+    all_preds = []
+    all_labels = []
 
     progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
     for batch in progress_bar:
@@ -106,8 +119,9 @@ for epoch in range(EPOCHS):
         optimizer.zero_grad()
 
         with autocast():
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            loss = outputs.loss
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            loss_fct = torch.nn.CrossEntropyLoss(weight=class_weights)
+            loss = loss_fct(outputs.logits, labels)
             logits = outputs.logits
 
         scaler.scale(loss).backward()
@@ -117,18 +131,21 @@ for epoch in range(EPOCHS):
 
         total_loss += loss.item()
         preds = torch.argmax(logits, dim=1)
-        correct += (preds == labels).sum().item()
-        total += labels.size(0)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
 
-        avg_loss = total_loss / total
-        acc = correct / total
+        avg_loss = total_loss / (len(all_preds) or 1)
+        acc = np.mean(np.array(all_preds) == np.array(all_labels))
         progress_bar.set_postfix(loss=avg_loss, acc=acc)
+
+    train_f1 = f1_score(all_labels, all_preds, average="weighted")
+    print(f"Train F1: {train_f1:.4f}")
 
     # --- Validation loop ---
     model.eval()
     val_loss = 0.0
-    val_correct = 0
-    val_total = 0
+    val_preds = []
+    val_labels = []
     with torch.no_grad():
         for batch in val_loader:
             input_ids = batch["input_ids"].to(device)
@@ -136,20 +153,21 @@ for epoch in range(EPOCHS):
             labels = batch["label_id"].to(device)
 
             with autocast():
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-                loss = outputs.loss
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+                loss_fct = torch.nn.CrossEntropyLoss(weight=class_weights)
+                loss = loss_fct(outputs.logits, labels)
                 logits = outputs.logits
 
             val_loss += loss.item()
             preds = torch.argmax(logits, dim=1)
-            val_correct += (preds == labels).sum().item()
-            val_total += labels.size(0)
+            val_preds.extend(preds.cpu().numpy())
+            val_labels.extend(labels.cpu().numpy())
 
     avg_val_loss = val_loss / len(val_loader)
-    val_acc = val_correct / val_total
-    print(f"Validation loss: {avg_val_loss:.4f} | Validation accuracy: {val_acc:.4f}")
+    val_acc = np.mean(np.array(val_preds) == np.array(val_labels))
+    val_f1 = f1_score(val_labels, val_preds, average="weighted")
+    print(f"Validation loss: {avg_val_loss:.4f} | Validation accuracy: {val_acc:.4f} | Validation F1: {val_f1:.4f}")
 
-    # Early stopping & save best model based on validation loss
     if avg_val_loss < best_val_loss:
         best_val_loss = avg_val_loss
         patience_counter = 0
@@ -160,9 +178,3 @@ for epoch in range(EPOCHS):
         if patience_counter >= PATIENCE:
             print("🛑 Early stopping triggered.")
             break
-
-# --- Tips to reduce overfitting ---
-# 1. Use dropout: DistilBERT already has dropout, but you can lower learning rate or increase dropout in config.
-# 2. Use weight decay: optimizer = AdamW(model.parameters(), lr=5e-5, weight_decay=0.01)
-# 3. Use early stopping (already implemented).
-# 4. Use more data augmentation or regularization if possible.

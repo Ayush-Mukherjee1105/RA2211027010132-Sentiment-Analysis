@@ -12,7 +12,7 @@ producer = KafkaProducer(
 )
 
 # Replace with your live stream video ID
-video_id = 'YOUR_LIVE_STREAM_VIDEO_ID/URL'
+video_id = 'nlVaD6ih02I'
 
 chat = pytchat.create(video_id=video_id)
 
